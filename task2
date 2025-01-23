@@ -1,0 +1,190 @@
+import java.io.BufferedReader;
+import java.io.IOException;
+import java.io.InputStreamReader;
+import java.io.OutputStream;
+import java.net.HttpURLConnection;
+import java.net.InetSocketAddress;
+import java.net.Socket;
+import java.net.URL;
+import java.util.ArrayList;
+import java.util.List;
+import java.util.Scanner;
+
+public class Main {
+
+    public static void main(String[] args) {
+        Scanner scanner = new Scanner(System.in);
+
+        System.out.println("Enter a target (IP address or website):");
+        String target = scanner.nextLine();
+
+        System.out.println("Scanning open ports...");
+        scanOpenPorts(target);
+
+        System.out.println("Checking HTTP headers for vulnerabilities...");
+        checkHttpHeaders(target);
+
+        System.out.println("Testing for SQL Injection vulnerabilities...");
+        testSqlInjection(target);
+
+        System.out.println("Testing for XSS vulnerabilities...");
+        testXss(target);
+
+        System.out.println("Testing for insecure authentication mechanisms...");
+        testInsecureAuthentication(target);
+
+        scanner.close();
+    }
+
+    // Scans for open ports in the range 1-1024
+    public static void scanOpenPorts(String target) {
+        List<Integer> openPorts = new ArrayList<>();
+
+        for (int port = 1; port <= 1024; port++) {
+            try (Socket socket = new Socket()) {
+                socket.connect(new InetSocketAddress(target, port), 200);
+                openPorts.add(port);
+            } catch (IOException ignored) {
+            }
+        }
+
+        if (openPorts.isEmpty()) {
+            System.out.println("No open ports found.");
+        } else {
+            System.out.println("Open ports: " + openPorts);
+        }
+    }
+
+    // Checks HTTP headers for outdated software versions and misconfigurations
+    public static void checkHttpHeaders(String target) {
+        try {
+            if (!target.startsWith("http://") && !target.startsWith("https://")) {
+                target = "http://" + target;
+            }
+
+            URL url = new URL(target);
+            HttpURLConnection connection = (HttpURLConnection) url.openConnection();
+            connection.setRequestMethod("GET");
+            connection.connect();
+
+            // Print response headers
+            System.out.println("HTTP Headers:");
+            connection.getHeaderFields().forEach((key, value) -> {
+                System.out.println(key + ": " + value);
+
+                // Check for outdated software indicators
+                if (key != null && key.equalsIgnoreCase("Server")) {
+                    String serverHeader = value.toString();
+                    if (serverHeader.toLowerCase().contains("apache/2.2") ||
+                        serverHeader.toLowerCase().contains("nginx/1.0")) {
+                        System.out.println("[Warning] Outdated server software detected: " + serverHeader);
+                    }
+                }
+
+                // Check for misconfigurations (e.g., exposing sensitive headers)
+                if (key != null && (key.equalsIgnoreCase("X-Powered-By") || key.equalsIgnoreCase("X-AspNet-Version"))) {
+                    System.out.println("[Warning] Potential misconfiguration detected: " + key + " header is exposed.");
+                }
+            });
+
+        } catch (IOException e) {
+            System.out.println("Unable to connect to the target: " + e.getMessage());
+        }
+    }
+
+    // Tests for SQL Injection vulnerabilities
+    public static void testSqlInjection(String target) {
+        String[] sqlPayloads = {"' OR '1'='1", "' OR '1'='1' --", "' OR 1=1 --"};
+
+        for (String payload : sqlPayloads) {
+            try {
+                if (!target.startsWith("http://") && !target.startsWith("https://")) {
+                    target = "http://" + target;
+                }
+
+                URL url = new URL(target + "?id=" + payload);
+                HttpURLConnection connection = (HttpURLConnection) url.openConnection();
+                connection.setRequestMethod("GET");
+                connection.connect();
+
+                int responseCode = connection.getResponseCode();
+                if (responseCode == 200) {
+                    BufferedReader reader = new BufferedReader(new InputStreamReader(connection.getInputStream()));
+                    String line;
+                    while ((line = reader.readLine()) != null) {
+                        if (line.contains("SQL syntax") || line.contains("database error")) {
+                            System.out.println("[Vulnerable] SQL Injection detected with payload: " + payload);
+                            return;
+                        }
+                    }
+                    reader.close();
+                }
+            } catch (IOException e) {
+                System.out.println("Unable to test SQL Injection: " + e.getMessage());
+            }
+        }
+
+        System.out.println("No SQL Injection vulnerabilities detected.");
+    }
+
+    // Tests for Cross-Site Scripting (XSS) vulnerabilities
+    public static void testXss(String target) {
+        String[] xssPayloads = {"<script>alert('XSS')</script>", "<img src='x' onerror='alert(1)'>"};
+
+        for (String payload : xssPayloads) {
+            try {
+                if (!target.startsWith("http://") && !target.startsWith("https://")) {
+                    target = "http://" + target;
+                }
+
+                URL url = new URL(target + "?q=" + payload);
+                HttpURLConnection connection = (HttpURLConnection) url.openConnection();
+                connection.setRequestMethod("GET");
+                connection.connect();
+
+                BufferedReader reader = new BufferedReader(new InputStreamReader(connection.getInputStream()));
+                String line;
+                while ((line = reader.readLine()) != null) {
+                    if (line.contains(payload)) {
+                        System.out.println("[Vulnerable] XSS detected with payload: " + payload);
+                        return;
+                    }
+                }
+                reader.close();
+            } catch (IOException e) {
+                System.out.println("Unable to test XSS: " + e.getMessage());
+            }
+        }
+
+        System.out.println("No XSS vulnerabilities detected.");
+    }
+
+    // Tests for insecure authentication mechanisms
+    public static void testInsecureAuthentication(String target) {
+        try {
+            if (!target.startsWith("http://") && !target.startsWith("https://")) {
+                target = "http://" + target;
+            }
+
+            URL url = new URL(target + "/login");
+            HttpURLConnection connection = (HttpURLConnection) url.openConnection();
+            connection.setRequestMethod("POST");
+            connection.setDoOutput(true);
+
+            String credentials = "username=admin&password=admin";
+            OutputStream os = connection.getOutputStream();
+            os.write(credentials.getBytes());
+            os.flush();
+            os.close();
+
+            int responseCode = connection.getResponseCode();
+            if (responseCode == 200) {
+                System.out.println("[Vulnerable] Insecure authentication detected with default credentials.");
+            } else {
+                System.out.println("No insecure authentication vulnerabilities detected.");
+            }
+        } catch (IOException e) {
+            System.out.println("Unable to test authentication: " + e.getMessage());
+        }
+    }
+}
